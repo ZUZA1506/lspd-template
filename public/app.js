@@ -5168,6 +5168,16 @@ function renderITOverviewPanel(editablePages) {
   const activeDuty = state.duty.length;
   const protectedPages = editablePages.filter((page) => isInternalSheetPage(page) && isPageViewRestricted(page)).length;
   const restartTimes = state.settings.restartTimes || [];
+  const leadDangerTools = isItLead() ?`
+        <section class="it-overview-block it-danger-zone">
+          <div><strong>IT-Leitung Bereinigung</strong><small>Endgueltige Aktionen fuer Daten, die bewusst geleert werden sollen.</small></div>
+          <div class="it-action-grid compact-actions">
+            <button class="it-tool danger-tool" id="clearSeizuresBtn" type="button"><strong>Beschlagnahmungen leeren</strong><span>${(state.settings?.seizures || []).length} Eintraege entfernen</span></button>
+            <button class="it-tool danger-tool" id="clearMemberAccountsBtn" type="button"><strong>Mitglieder-Accounts loeschen</strong><span>Alle Accounts ausser deinem entfernen</span></button>
+            <button class="it-tool danger-tool" id="clearLogsBtn" type="button"><strong>Logs loeschen</strong><span>${(state.logs || []).length} Logs entfernen</span></button>
+          </div>
+        </section>
+  ` : "";
   return `
     <div class="panel it-section-card it-overview-start it-overview-redesign">
       <div class="it-overview-headline">
@@ -5197,11 +5207,11 @@ function renderITOverviewPanel(editablePages) {
             <button class="it-tool" id="overviewCreateDepartment"><strong>Abteilung erstellen</strong><span>Abteilungs-Template</span></button>
             <button class="it-tool ${state.settings?.devMode ?"devmode-on" : ""}" id="overviewToggleDevMode"><strong>Devmode</strong><span>${state.settings?.devMode ?"Aktiv" : "Aus"}</span></button>
             <button class="it-tool ${state.settings?.maintenanceMode ?"devmode-on" : ""}" id="overviewToggleMaintenance"><strong>Wartungsarbeiten</strong><span>${state.settings?.maintenanceMode ?"Aktiv" : "Aus"}</span></button>
-            <button class="it-tool ${state.settings?.gibsonColaButtonEnabled ?"devmode-on" : ""}" id="overviewToggleGibsonCola"><strong>Cola Zero Button</strong><span>${state.settings?.gibsonColaButtonEnabled ?"Sichtbar" : "Ausgeblendet"}</span></button>
             <button class="it-tool ${state.settings?.hideDefconCard ?"devmode-on" : ""}" id="overviewToggleDefconCard"><strong>DEFCON Kachel</strong><span>${state.settings?.hideDefconCard ?"Ausgeblendet" : "Sichtbar"}</span></button>
             <button class="it-tool ${state.settings?.hideInformationLinksCard !== false ?"devmode-on" : ""}" id="overviewToggleInformationLinks"><strong>Link Weiterleitung</strong><span>${state.settings?.hideInformationLinksCard !== false ?"Ausgeblendet" : "Sichtbar"}</span></button>
           </div>
         </section>
+        ${leadDangerTools}
         <section class="it-overview-block it-overview-restarts">
           <div><strong>Restarts</strong><small>${restartTimes.length ?`${restartTimes.length} Restartzeit${restartTimes.length === 1 ?"" : "en"} aktiv` : "Noch keine Restartzeit angelegt"}</small></div>
           <div class="restart-editor">
@@ -6000,14 +6010,38 @@ function renderIT() {
     state.settings = data.settings;
     renderApp();
   });
-  $("#overviewToggleGibsonCola")?.addEventListener("click", async () => {
-    const data = await api("/api/it/gibson-cola", {
-      method: "PATCH",
-      body: JSON.stringify({ gibsonColaButtonEnabled: !state.settings?.gibsonColaButtonEnabled })
-    });
-    state.settings = data.settings;
-    renderApp();
-  });
+  $("#clearSeizuresBtn")?.addEventListener("click", () => openConfirmModal({
+    title: "Beschlagnahmungen leeren",
+    text: "Alle geposteten Beschlagnahmungen werden endgueltig geloescht.",
+    confirmText: "Beschlagnahmungen leeren",
+    onConfirm: async () => {
+      const data = await api("/api/it/clear-seizures", { method: "POST", body: "{}" });
+      state.settings = data.settings || { ...state.settings, seizures: [] };
+      renderIT();
+      showNotify("Beschlagnahmungen wurden geleert.");
+    }
+  }));
+  $("#clearMemberAccountsBtn")?.addEventListener("click", () => openConfirmModal({
+    title: "Mitglieder-Accounts loeschen",
+    text: "Alle Mitglieder-Accounts ausser deinem aktuellen Account werden endgueltig geloescht.",
+    confirmText: "Accounts loeschen",
+    onConfirm: async () => {
+      await api("/api/it/clear-member-accounts", { method: "POST", body: "{}" });
+      await bootstrap();
+      showNotify("Alle anderen Mitglieder-Accounts wurden geloescht.");
+    }
+  }));
+  $("#clearLogsBtn")?.addEventListener("click", () => openConfirmModal({
+    title: "Logs loeschen",
+    text: "Alle Logs werden endgueltig geloescht. Danach ist die Log-Liste leer.",
+    confirmText: "Logs loeschen",
+    onConfirm: async () => {
+      const data = await api("/api/it/clear-logs", { method: "POST", body: "{}" });
+      state.logs = data.logs || [];
+      renderIT();
+      showNotify("Logs wurden geloescht.");
+    }
+  }));
   $("#saveCustomAnimation")?.addEventListener("click", async () => {
     try {
       await saveCustomAnimationSettings();

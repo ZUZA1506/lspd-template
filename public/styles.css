@@ -1626,14 +1626,14 @@ textarea:focus {
   background: transparent;
   text-decoration: none;
   overflow: hidden;
-  box-shadow: 0 8px 18px rgba(88, 101, 242, .24);
-  transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+  box-shadow: none;
+  transition: transform .16s ease, filter .16s ease;
 }
 
 .top-discord-link:hover {
   transform: translateY(-1px);
   filter: brightness(1.08);
-  box-shadow: 0 10px 22px rgba(88, 101, 242, .34);
+  box-shadow: none;
 }
 
 .top-discord-link img {
@@ -6383,6 +6383,20 @@ table td.text-left {
 .it-tool.devmode-on {
   border-color: rgba(245, 158, 11, .78);
   background: rgba(245, 158, 11, .14);
+}
+
+.it-overview-block.it-danger-zone {
+  border-color: rgba(239, 68, 68, .46);
+  background: rgba(127, 29, 29, .16);
+}
+
+.it-tool.danger-tool {
+  border-color: rgba(239, 68, 68, .58);
+  background: rgba(127, 29, 29, .24);
+}
+
+.it-tool.danger-tool strong {
+  color: #ffd7d7;
 }
 
 .it-layout {

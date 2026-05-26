@@ -4465,6 +4465,40 @@ function requireItLead(req, res, next) {
   next();
 }
 
+function removeUserReferences(db, removedUserIds = []) {
+  const removed = new Set(removedUserIds.filter(Boolean));
+  if (!removed.size) return;
+  db.duty = (db.duty || []).filter((entry) => !removed.has(entry.userId));
+  db.dutyHistory = (db.dutyHistory || []).filter((entry) => !removed.has(entry.userId));
+  db.disciplinary = (db.disciplinary || []).filter((entry) => !removed.has(entry.userId));
+  db.absences = (db.absences || []).filter((entry) => !removed.has(entry.userId));
+  db.sessions = (db.sessions || []).filter((session) => !removed.has(session.userId));
+  (db.settings?.departments || []).forEach((department) => {
+    department.members = (department.members || []).filter((member) => !removed.has(member.userId));
+    department.memberNotes = (department.memberNotes || []).filter((entry) => !removed.has(entry.userId));
+  });
+  const permissions = db.settings?.permissions || {};
+  [...Object.values(permissions.pages || {}), ...Object.values(permissions.actions || {})].forEach((rule) => {
+    if (rule && Array.isArray(rule.users)) rule.users = rule.users.filter((userId) => !removed.has(userId));
+  });
+  db.settings.mailboxThreads = (db.settings?.mailboxThreads || []).map((thread) => {
+    const participantIds = (thread.participantIds || []).filter((userId) => !removed.has(userId));
+    const cleanUserMap = (value = {}) => Object.fromEntries(Object.entries(value).filter(([userId]) => !removed.has(userId)));
+    return {
+      ...thread,
+      participantIds,
+      leaderIds: (thread.leaderIds || []).filter((userId) => !removed.has(userId) && participantIds.includes(userId)),
+      readBy: cleanUserMap(thread.readBy),
+      archivedBy: cleanUserMap(thread.archivedBy),
+      deletedBy: cleanUserMap(thread.deletedBy),
+      removedBy: cleanUserMap(thread.removedBy)
+    };
+  }).filter((thread) => (thread.participantIds || []).length);
+  for (const [token, entry] of activeWebClients.entries()) {
+    if (removed.has(entry.userId)) activeWebClients.delete(token);
+  }
+}
+
 app.get("/api/it/mailbox/threads", requireAuth, requireItLead, (req, res) => {
   const threads = (req.db.settings.mailboxThreads || [])
     .slice()
@@ -5191,14 +5225,7 @@ app.patch("/api/users/:id/file/:entryId", requireAuth, (req, res) => {
 app.delete("/api/users/:id", requireAuth, requireRole("IT"), (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: "Du kannst dich nicht selbst löschen." });
   req.db.users = req.db.users.filter((user) => user.id !== req.params.id);
-  req.db.duty = req.db.duty.filter((entry) => entry.userId !== req.params.id);
-  req.db.dutyHistory = (req.db.dutyHistory || []).filter((entry) => entry.userId !== req.params.id);
-  req.db.disciplinary = (req.db.disciplinary || []).filter((entry) => entry.userId !== req.params.id);
-  req.db.absences = (req.db.absences || []).filter((entry) => entry.userId !== req.params.id);
-  (req.db.settings?.departments || []).forEach((department) => {
-    department.memberNotes = (department.memberNotes || []).filter((entry) => entry.userId !== req.params.id);
-  });
-  req.db.sessions = req.db.sessions.filter((session) => session.userId !== req.params.id);
+  removeUserReferences(req.db, [req.params.id]);
   logAction(req.db, req.user, "Benutzer gelöscht", req.params.id);
   writeDb(req.db);
   res.json({ ok: true });
@@ -5763,14 +5790,6 @@ app.patch("/api/it/maintenance", requireAuth, requireRole("IT"), (req, res) => {
   res.json({ settings: publicSettings(req.db.settings) });
 });
 
-app.patch("/api/it/gibson-cola", requireAuth, requireRole("IT"), (req, res) => {
-  const before = req.db.settings.gibsonColaButtonEnabled !== false;
-  req.db.settings.gibsonColaButtonEnabled = Boolean(req.body.gibsonColaButtonEnabled);
-  logAction(req.db, req.user, req.db.settings.gibsonColaButtonEnabled ?"Cola Zero Button aktiviert" : "Cola Zero Button deaktiviert", "IT", { before, after: req.db.settings.gibsonColaButtonEnabled });
-  writeDb(req.db);
-  res.json({ settings: publicSettings(req.db.settings) });
-});
-
 app.get("/api/gibson-cola/status", requireAuth, (req, res) => {
   res.json({ party: req.db.settings.gibsonColaParty || {}, enabled: req.db.settings.gibsonColaButtonEnabled !== false });
 });
@@ -6118,6 +6137,30 @@ app.post("/api/it/clear-sessions", requireAuth, requireRole("IT"), (req, res) =>
   }
   writeDb(req.db);
   res.json({ ok: true });
+});
+
+app.post("/api/it/clear-seizures", requireAuth, requireItLead, (req, res) => {
+  const removed = Array.isArray(req.db.settings.seizures) ?req.db.settings.seizures.length : 0;
+  req.db.settings.seizures = [];
+  logAction(req.db, req.user, "Beschlagnahmungen geleert", "IT-Leitung", { removed });
+  writeDb(req.db);
+  res.json({ ok: true, removed, settings: publicSettings(req.db.settings) });
+});
+
+app.post("/api/it/clear-member-accounts", requireAuth, requireItLead, (req, res) => {
+  const removedUserIds = (req.db.users || []).filter((user) => user.id !== req.user.id).map((user) => user.id);
+  req.db.users = (req.db.users || []).filter((user) => user.id === req.user.id);
+  removeUserReferences(req.db, removedUserIds);
+  logAction(req.db, req.user, "Mitglieder-Accounts geleert", "IT-Leitung", { removed: removedUserIds.length });
+  writeDb(req.db);
+  res.json({ ok: true, removed: removedUserIds.length });
+});
+
+app.post("/api/it/clear-logs", requireAuth, requireItLead, (req, res) => {
+  const removed = Array.isArray(req.db.logs) ?req.db.logs.length : 0;
+  req.db.logs = [];
+  writeDb(req.db);
+  res.json({ ok: true, removed, logs: [] });
 });
 
 app.post("/api/activity/ping", requireAuth, (req, res) => {
