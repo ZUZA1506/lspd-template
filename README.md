@@ -2,14 +2,6 @@
 
 Node.js/Express Dienstblatt als leeres Showcase-Template mit statischem Frontend und JSON-Speicher.
 
-## Erstzugang
-
-```text
-Login: Daniel Hebel-Jameson
-Passwort: ZUZA
-Rolle: IT-Leitung
-```
-
 ## Render Deployment
 
 Build Command:
