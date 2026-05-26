@@ -1538,6 +1538,14 @@ textarea:focus {
   z-index: 3;
 }
 
+.topbar > .template-mode-chip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+}
+
 .header-title-block {
   min-width: 0;
 }
@@ -14732,6 +14740,11 @@ table td.text-left {
   .panel-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .topbar > .template-mode-chip {
+    position: static;
+    transform: none;
   }
 
   .navigation {
