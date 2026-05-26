@@ -1,0 +1,15 @@
+{
+  "name": "lspd-dienstblatt-template",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Leeres LSPD Dienstblatt Showcase-Template mit JSON-Speicher",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.26.4",
+    "express": "^4.19.2"
+  }
+}

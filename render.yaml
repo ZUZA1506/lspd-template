@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: lspd-dienstblatt-template
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /opt/render/project/src/storage
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+    disk:
+      name: lspd-dienstblatt-template-storage
+      mountPath: /opt/render/project/src/storage
+      sizeGB: 1
