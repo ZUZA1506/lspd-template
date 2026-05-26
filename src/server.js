@@ -6157,10 +6157,16 @@ app.post("/api/it/clear-member-accounts", requireAuth, requireItLead, (req, res)
 });
 
 app.post("/api/it/clear-logs", requireAuth, requireItLead, (req, res) => {
-  const removed = Array.isArray(req.db.logs) ?req.db.logs.length : 0;
+  const removed = {
+    logs: Array.isArray(req.db.logs) ?req.db.logs.length : 0,
+    dutyHistory: Array.isArray(req.db.dutyHistory) ?req.db.dutyHistory.length : 0,
+    fluctuation: Array.isArray(req.db.settings?.fluctuation) ?req.db.settings.fluctuation.length : 0
+  };
   req.db.logs = [];
+  req.db.dutyHistory = [];
+  req.db.settings.fluctuation = [];
   writeDb(req.db);
-  res.json({ ok: true, removed, logs: [] });
+  res.json({ ok: true, removed, logs: [], dutyHistory: [], fluctuation: [] });
 });
 
 app.post("/api/activity/ping", requireAuth, (req, res) => {

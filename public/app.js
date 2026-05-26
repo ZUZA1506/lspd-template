@@ -5174,7 +5174,7 @@ function renderITOverviewPanel(editablePages) {
           <div class="it-action-grid compact-actions">
             <button class="it-tool danger-tool" id="clearSeizuresBtn" type="button"><strong>Beschlagnahmungen leeren</strong><span>${(state.settings?.seizures || []).length} Eintraege entfernen</span></button>
             <button class="it-tool danger-tool" id="clearMemberAccountsBtn" type="button"><strong>Mitglieder-Accounts loeschen</strong><span>Alle Accounts ausser deinem entfernen</span></button>
-            <button class="it-tool danger-tool" id="clearLogsBtn" type="button"><strong>Logs loeschen</strong><span>${(state.logs || []).length} Logs entfernen</span></button>
+            <button class="it-tool danger-tool" id="clearLogsBtn" type="button"><strong>Logs loeschen</strong><span>${(state.logs || []).length + (state.dutyHistory || []).length + (state.settings?.fluctuation || []).length} Eintraege aus Logs, Dienstzeiten und Fluktation entfernen</span></button>
           </div>
         </section>
   ` : "";
@@ -6033,13 +6033,15 @@ function renderIT() {
   }));
   $("#clearLogsBtn")?.addEventListener("click", () => openConfirmModal({
     title: "Logs loeschen",
-    text: "Alle Logs werden endgueltig geloescht. Danach ist die Log-Liste leer.",
+    text: "Alle Logs, Dienstzeiten und Eintraege der Mitgliederfluktation werden endgueltig geloescht.",
     confirmText: "Logs loeschen",
     onConfirm: async () => {
       const data = await api("/api/it/clear-logs", { method: "POST", body: "{}" });
       state.logs = data.logs || [];
+      state.dutyHistory = data.dutyHistory || [];
+      state.settings.fluctuation = data.fluctuation || [];
       renderIT();
-      showNotify("Logs wurden geloescht.");
+      showNotify("Logs, Dienstzeiten und Mitgliederfluktation wurden geloescht.");
     }
   }));
   $("#saveCustomAnimation")?.addEventListener("click", async () => {
