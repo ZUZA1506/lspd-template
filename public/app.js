@@ -450,8 +450,12 @@ function warmAvatarCache() {
 }
 
 function hasRole(minRole) {
-  const power = { User: 1, Supervisor: 2, Direktion: 3, IT: 4, "IT-Leitung": 5 };
+  const power = { User: 1, Supervisor: 2, Direktion: 3, Template: 1, IT: 4, "IT-Leitung": 5 };
   return (power[state.currentUser?.role] || 0) >= (power[minRole] || 0);
+}
+
+function isTemplateViewer(user = state.currentUser) {
+  return user?.role === "Template";
 }
 
 function canManageFluctuation() {
@@ -571,6 +575,7 @@ function canAccess(area, key, fallbackRole = "IT") {
 }
 
 function canSeeDepartment(page) {
+  if (isTemplateViewer()) return true;
   if (hasRole("IT")) return true;
   if (page === "IT") return hasRole("IT");
   if (state.currentUser?.role === "Direktion") return true;
@@ -800,8 +805,8 @@ function roleClass(role) {
 }
 
 function roleBadges(user) {
-  const baseRole = user?.baseRole || (["IT", "IT-Leitung"].includes(user?.role) ?"Direktion" : user?.role || "User");
-  const roles = user?.role === "IT-Leitung" ?[baseRole, "IT", "IT-Leitung"] : user?.role === "IT" ?[baseRole, "IT"] : [baseRole];
+  const baseRole = user?.baseRole || (["Template", "IT", "IT-Leitung"].includes(user?.role) ?"Direktion" : user?.role || "User");
+  const roles = user?.role === "IT-Leitung" ?[baseRole, "IT", "IT-Leitung"] : user?.role === "IT" ?[baseRole, "IT"] : user?.role === "Template" ?[baseRole, "Template"] : [baseRole];
   if (user?.teamler) roles.push("Teamler");
   return roles.map((role) => `<span class="role-pill ${roleClass(role)}">${escapeHtml(role)}</span>`).join("");
 }
@@ -4086,19 +4091,25 @@ function renderItToggleOld(checked = false) {
 }
 
 function editableRoleOptions(user = null) {
-  return state.roles.filter((role) => !["IT", "IT-Leitung"].includes(role));
+  return state.roles.filter((role) => !["Template", "IT", "IT-Leitung"].includes(role));
 }
 
 function baseRoleForUser(user = null) {
-  return user?.baseRole || (["IT", "IT-Leitung"].includes(user?.role) ?"Direktion" : user?.role || "User");
+  return user?.baseRole || (["Template", "IT", "IT-Leitung"].includes(user?.role) ?"Direktion" : user?.role || "User");
 }
 
 function renderItRoleControls(user = null) {
   const isIt = ["IT", "IT-Leitung"].includes(user?.role);
   const isLead = user?.role === "IT-Leitung";
+  const isTemplate = user?.role === "Template";
   const disabled = canGrantItRoles() ?"" : "disabled";
   return `
     <div class="it-role-controls full">
+      <label class="it-toggle">
+        <input type="checkbox" name="isTemplate" ${isTemplate ?"checked" : ""} ${disabled}>
+        <span class="it-toggle-ui"></span>
+        <span><b>Template</b><small>Sieht alle Reiter ohne Sonderrechte</small></span>
+      </label>
       <label class="it-toggle">
         <input type="checkbox" name="isIT" ${isIt ?"checked" : ""} ${disabled}>
         <span class="it-toggle-ui"></span>
@@ -5710,7 +5721,7 @@ async function openItMailboxThread(threadId) {
 }
 
 function renderIT() {
-  if (!hasRole("IT")) {
+  if (!hasRole("IT") && !isTemplateViewer()) {
     content.innerHTML = `<section class="panel"><h3>Kein Zugriff</h3><p class="muted">Dieser Bereich ist nur für IT sichtbar.</p></section>`;
     return;
   }
@@ -14797,10 +14808,11 @@ function openUserModal(user) {
       const body = Object.fromEntries(form.entries());
       body.baseRole = body.role;
       if (canGrantItRoles()) {
-        body.role = form.get("isITLead") === "on" ?"IT-Leitung" : form.get("isIT") === "on" ?"IT" : body.baseRole;
+        body.role = form.get("isITLead") === "on" ?"IT-Leitung" : form.get("isIT") === "on" ?"IT" : form.get("isTemplate") === "on" ?"Template" : body.baseRole;
       } else {
         body.role = user?.role || body.baseRole;
       }
+      delete body.isTemplate;
       delete body.isIT;
       delete body.isITLead;
       body.departments = user?.departments || [];
@@ -15122,7 +15134,7 @@ function openRehireUserModal(user) {
       event.preventDefault();
       const form = new FormData(event.currentTarget);
       const baseRole = form.get("role");
-      const role = canGrantItRoles() ?(form.get("isITLead") === "on" ?"IT-Leitung" : form.get("isIT") === "on" ?"IT" : baseRole) : user.role;
+      const role = canGrantItRoles() ?(form.get("isITLead") === "on" ?"IT-Leitung" : form.get("isIT") === "on" ?"IT" : form.get("isTemplate") === "on" ?"Template" : baseRole) : user.role;
       try {
         await api(`/api/users/${user.id}/rehire`, {
           method: "POST",

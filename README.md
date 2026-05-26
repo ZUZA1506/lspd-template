@@ -21,6 +21,7 @@ Environment Variables:
 ```text
 NODE_ENV=production
 DATA_DIR=/opt/render/project/src/storage
+SESSION_SECRET=
 DISCORD_APPLICATION_ID=
 DISCORD_CLIENT_SECRET=
 DISCORD_PUBLIC_KEY=

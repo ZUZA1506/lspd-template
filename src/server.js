@@ -39,6 +39,7 @@ const evidencePreviewCache = new Map();
 const informationEditLocks = new Map();
 const activeWebClients = new Map();
 const jumpscareEvents = new Map();
+const runtimeSessionSecret = crypto.randomBytes(32).toString("hex");
 let clientRefreshRevision = "";
 let informationEditLocksRevision = "";
 let twitchAccessToken = "";
@@ -90,8 +91,8 @@ const LEGACY_PUBLIC_BASE_URLS = [
 const PUBLIC_BASE_URL = normalizePublicUrl(process.env.PUBLIC_BASE_URL || DEFAULT_PUBLIC_BASE_URL);
 const pendingDiscordOAuthTickets = new Map();
 
-const roles = ["User", "Frakverwaltung", "Supervisor", "Direktion", "IT", "IT-Leitung"];
-const rolePower = { User: 1, Frakverwaltung: 1, Supervisor: 2, Direktion: 3, IT: 4, "IT-Leitung": 5 };
+const roles = ["User", "Frakverwaltung", "Supervisor", "Direktion", "Template", "IT", "IT-Leitung"];
+const rolePower = { User: 1, Frakverwaltung: 1, Supervisor: 2, Direktion: 3, Template: 1, IT: 4, "IT-Leitung": 5 };
 const ranks = Array.from({ length: 13 }, (_, index) => ({
   value: index,
   label: `Rang ${index}`
@@ -551,7 +552,7 @@ function readDb() {
     if (firstItUser) firstItUser.role = "IT-Leitung";
   }
   db.users.forEach((user) => {
-    if (!user.baseRole) user.baseRole = ["IT", "IT-Leitung"].includes(user.role) ?"Direktion" : user.role || "User";
+    if (!user.baseRole) user.baseRole = ["Template", "IT", "IT-Leitung"].includes(user.role) ?"Direktion" : user.role || "User";
     user.discordId = typeof user.discordId === "string" ?user.discordId : "";
     user.activatedAt = String(user.activatedAt || "");
     user.notificationBaselineAt = String(user.notificationBaselineAt || user.activatedAt || "");
@@ -871,6 +872,7 @@ function isSwatTeamLeaderMember(member) {
 function canViewSwatTeamContent(user, department, team, db = null) {
   if (!isSwatDepartment(department)) return true;
   const resolvedTeam = normalizeSwatTeam(team);
+  if (user?.role === "Template") return true;
   if ((rolePower[user.role] || 0) >= rolePower.Direktion) return true;
   if (db && hasPermission(user, db, "actions", `departmentMembers:${department.id}`, "IT")) return true;
   const membership = swatMembershipFor(department, user.id);
@@ -1679,7 +1681,7 @@ function discordRoleIdsForUser(db, user) {
   const sync = normalizeDiscordSync(db.settings?.discordSync);
   const roleIds = new Set();
   if (user.terminated) return roleIds;
-  const baseRole = user.baseRole || (["IT", "IT-Leitung"].includes(user.role) ?"Direktion" : user.role || "User");
+  const baseRole = user.baseRole || (["Template", "IT", "IT-Leitung"].includes(user.role) ?"Direktion" : user.role || "User");
   (sync.roleRoles?.[baseRole] || []).forEach((roleId) => roleIds.add(roleId));
   if (!isFrakverwaltungUser(user)) {
     (sync.rankRoles[String(user.rank)] || []).forEach((roleId) => roleIds.add(roleId));
@@ -1984,9 +1986,36 @@ function cleanupDiscordOAuthTickets() {
 }
 
 function createSession(db, user) {
-  const token = crypto.randomBytes(32).toString("hex");
+  const token = createSessionToken(db, user);
   db.sessions.push({ token, userId: user.id, createdAt: nowIso() });
   return token;
+}
+
+function sessionSecret(db = null) {
+  return process.env.SESSION_SECRET || process.env.DISCORD_BOT_TOKEN || db?.settings?.discordSync?.botToken || runtimeSessionSecret;
+}
+
+function createSessionToken(db, user) {
+  const issuedAt = Date.now().toString(36);
+  const nonce = crypto.randomBytes(12).toString("hex");
+  const payload = `${user.id}.${issuedAt}.${nonce}`;
+  const signature = crypto.createHmac("sha256", sessionSecret(db)).update(`${payload}.${user.passwordHash || ""}.${user.updatedAt || ""}`).digest("hex");
+  return `v2.${payload}.${signature}`;
+}
+
+function userFromSessionToken(db, token) {
+  const session = db.sessions.find((item) => item.token === token);
+  if (session) return { session, user: db.users.find((item) => item.id === session.userId) };
+  const parts = String(token || "").split(".");
+  if (parts.length !== 5 || parts[0] !== "v2") return { session: null, user: null };
+  const [, userId, issuedAt, nonce, signature] = parts;
+  if (!userId || !issuedAt || !nonce || !signature) return { session: null, user: null };
+  const user = db.users.find((item) => item.id === userId);
+  if (!user) return { session: null, user: null };
+  const payload = `${userId}.${issuedAt}.${nonce}`;
+  const expected = crypto.createHmac("sha256", sessionSecret(db)).update(`${payload}.${user.passwordHash || ""}.${user.updatedAt || ""}`).digest("hex");
+  const valid = signature.length === expected.length && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  return valid ?{ session: { token, userId, createdAt: new Date(parseInt(issuedAt, 36) || Date.now()).toISOString() }, user } : { session: null, user: null };
 }
 
 async function finishDiscordLogin(db, accessToken) {
@@ -3296,10 +3325,9 @@ function setAccountStatus(user, status) {
 function requireAuth(req, res, next) {
   const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   const db = readDb();
-  const session = db.sessions.find((item) => item.token === token);
+  const { session, user } = userFromSessionToken(db, token);
   if (!session) return res.status(401).json({ error: "Nicht angemeldet." });
 
-  const user = db.users.find((item) => item.id === session.userId);
   if (!user || user.locked || user.terminated) return res.status(401).json({ error: "Account gesperrt, entlassen oder nicht gefunden." });
 
   req.db = db;
@@ -3489,6 +3517,7 @@ function canTouchDepartmentMemberPosition(user, department, position) {
 
 function canSeeDepartmentPage(user, department, db = null) {
   if (!department) return false;
+  if (user?.role === "Template") return true;
   if (isSwatDepartment(department)) return true;
   if ((rolePower[user.role] || 0) >= rolePower.Direktion) return true;
   if (db && hasPermission(user, db, "pages", `dept:${department.id}`, "IT")) return true;
@@ -3528,9 +3557,9 @@ function canGrantItRoles(actor) {
 function protectItRoleChange(actor, existingRole, requestedRole) {
   const before = existingRole || "User";
   const next = roles.includes(requestedRole) ?requestedRole : before;
-  const touchesItRole = ["IT", "IT-Leitung"].includes(before) || ["IT", "IT-Leitung"].includes(next);
+  const touchesItRole = ["Template", "IT", "IT-Leitung"].includes(before) || ["Template", "IT", "IT-Leitung"].includes(next);
   if (touchesItRole && before !== next && !canGrantItRoles(actor)) {
-    return { error: "Nur die IT-Leitung darf IT- oder IT-Leitung-Rollen vergeben oder entfernen." };
+    return { error: "Nur die IT-Leitung darf Template-, IT- oder IT-Leitung-Rollen vergeben oder entfernen." };
   }
   return { role: next };
 }
@@ -3572,9 +3601,9 @@ function normalizeUserInput(body, existingUser) {
   const rank = rankMatch ?Number(rankMatch[0]) : NaN;
   const role = roles.includes(body.role) ?body.role : existingUser?.role || "User";
   const requestedBaseRole = String(body.baseRole || "").trim();
-  const baseRole = roles.includes(requestedBaseRole) && !["IT", "IT-Leitung"].includes(requestedBaseRole)
+  const baseRole = roles.includes(requestedBaseRole) && !["Template", "IT", "IT-Leitung"].includes(requestedBaseRole)
     ?requestedBaseRole
-    : existingUser?.baseRole || (["IT", "IT-Leitung"].includes(role) ?"Direktion" : role);
+    : existingUser?.baseRole || (["Template", "IT", "IT-Leitung"].includes(role) ?"Direktion" : role);
   const isFrakverwaltung = role === "Frakverwaltung" || baseRole === "Frakverwaltung";
   const departments = Array.isArray(body.departments) ?body.departments.map(String) : existingUser?.departments || [];
   const trainings = body.trainings && typeof body.trainings === "object" ?body.trainings : existingUser?.trainings || {};
@@ -5008,9 +5037,9 @@ app.post("/api/users/:id/rehire", requireAuth, requireRole("Direktion"), (req, r
   if (roleCheck.error) return res.status(403).json({ error: roleCheck.error });
   const role = roleCheck.role;
   const requestedBaseRole = String(req.body.baseRole || "").trim();
-  const baseRole = roles.includes(requestedBaseRole) && !["IT", "IT-Leitung"].includes(requestedBaseRole)
+  const baseRole = roles.includes(requestedBaseRole) && !["Template", "IT", "IT-Leitung"].includes(requestedBaseRole)
     ?requestedBaseRole
-    : user.baseRole || (["IT", "IT-Leitung"].includes(role) ?"Direktion" : role);
+    : user.baseRole || (["Template", "IT", "IT-Leitung"].includes(role) ?"Direktion" : role);
   if (!firstName || !lastName || !phone) return res.status(400).json({ error: "Name, Nachname und Telefonnummer sind Pflichtfelder." });
   const before = publicUser(user);
   user.terminated = false;

@@ -12,6 +12,8 @@ services:
         value: /opt/render/project/src/storage
       - key: DISCORD_CLIENT_SECRET
         sync: false
+      - key: SESSION_SECRET
+        sync: false
     disk:
       name: lspd-dienstblatt-template-storage
       mountPath: /opt/render/project/src/storage
